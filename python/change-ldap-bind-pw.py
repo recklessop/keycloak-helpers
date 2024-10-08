@@ -98,7 +98,7 @@ def main(base_url, username):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python update_ldap_password.py <Keycloak server URL> <username>")
+        print("Usage: python update_ldap_password.py <https://KeycloakServerIP/auth> <Keycloak Username>")
         sys.exit(1)
 
     base_url = sys.argv[1]
