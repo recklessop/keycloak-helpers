@@ -1,16 +1,5 @@
-# Disable SSL certificate validation
-Add-Type @"
-    using System.Net;
-    using System.Security.Cryptography.X509Certificates;
-    public class TrustAllCertsPolicy : ICertificatePolicy {
-        public bool CheckValidationResult(
-            ServicePoint srvPoint, X509Certificate certificate,
-            WebRequest request, int certificateProblem) {
-            return true;
-        }
-    }
-"@
-[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+[string]$BaseUrl = "https://192.168.50.60/auth"
+[string]$Username = "admin"
 
 function Get-AccessToken {
     param (
@@ -27,8 +16,14 @@ function Get-AccessToken {
         grant_type  = "password"
     }
     
-    $response = Invoke-RestMethod -Uri $url -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
-    return $response.access_token
+    try {
+        $response = Invoke-RestMethod -Uri $url -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -SkipCertificateCheck
+        return $response.access_token
+    }
+    catch {
+        Write-Host "Failed to get access token: $($_.Exception.Message)" -ForegroundColor Red
+        exit 1
+    }
 }
 
 function Get-LdapComponent {
@@ -42,18 +37,22 @@ function Get-LdapComponent {
         Authorization = "Bearer $AccessToken"
     }
 
-    $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers
-
-    # Find the LDAP component
-    foreach ($component in $response) {
-        if ($component.providerId -eq "ldap" -and $component.parentId -eq "Zerto") {
-            Write-Host "Found LDAP provider." -ForegroundColor Green
-            return $component
+    try {
+        $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers -SkipCertificateCheck
+        foreach ($component in $response) {
+            if ($component.providerId -eq "ldap" -and $component.parentId -eq "Zerto") {
+                Write-Host "Found LDAP provider." -ForegroundColor Green
+                Write-Host $component
+                return $component
+            }
         }
+        Write-Host "LDAP provider not found." -ForegroundColor Red
+        exit 1
     }
-
-    Write-Host "LDAP provider not found." -ForegroundColor Red
-    exit 1
+    catch {
+        Write-Host "Failed to get LDAP component: $($_.Exception.Message)" -ForegroundColor Red
+        exit 1
+    }
 }
 
 function Update-LdapPassword {
@@ -74,20 +73,20 @@ function Update-LdapPassword {
 
     $body = $Component | ConvertTo-Json -Depth 10
 
-    $response = Invoke-RestMethod -Uri $url -Method Put -Headers $headers -Body $body
-    
-    if ($response.StatusCode -eq 204) {
-        Write-Host "New password accepted." -ForegroundColor Green
-    } else {
-        Write-Host "Failed to update password: $($response.StatusDescription)" -ForegroundColor Red
+    try {
+        $response = Invoke-WebRequest -Uri $url -Method Put -Headers $headers -Body $body -SkipCertificateCheck -UseBasicParsing
+        if ($response.StatusCode -eq 204) {
+            Write-Host "New password accepted." -ForegroundColor Green
+        } else {
+            Write-Host "Failed to update password, received status code: $($response.StatusCode)" -ForegroundColor Red
+        }
+    }
+    catch {
+        Write-Host "Failed to update password: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
 # Main script
-param (
-    [string]$BaseUrl,
-    [string]$Username
-)
 
 # Ask for Keycloak admin password
 $AdminPassword = Read-Host -AsSecureString -Prompt "Enter Keycloak admin password"
